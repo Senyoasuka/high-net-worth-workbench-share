@@ -4,7 +4,7 @@ const sid=new URLSearchParams(location.search).get('s'), key=new URLSearchParams
 let snapshot=null, expiryTimer=null, busy=false, attempts=0;
 const format=t=>new Date(t).toLocaleString('zh-CN',{hour12:false});
 function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=String(text);if(cls)e.className=cls;return e;}
-function state(title,message,retry=false,loading=false){$('#content').hidden=true;$('#state').hidden=false;$('#stateTitle').textContent=title;$('#stateText').textContent=message;$('#retry').hidden=!retry;$('#state').classList.toggle('loading',loading);}
+function state(title,message,retry=false,loading=false){window.HNWStockViewer?.clear();$('#stockSection').replaceChildren();$('#content').hidden=true;$('#state').hidden=false;$('#stateTitle').textContent=title;$('#stateText').textContent=message;$('#retry').hidden=!retry;$('#state').classList.toggle('loading',loading);}
 function decode(value){const s=value.replace(/-/g,'+').replace(/_/g,'/');return Uint8Array.from(atob(s+'='.repeat((4-s.length%4)%4)),c=>c.charCodeAt(0));}
 function number(value){const s=String(value??'--'), normalized=s.replace(/,/g,'');return /^-?\d+(\.\d+)?$/.test(normalized)&&Number.isFinite(Number(normalized))?Number(normalized).toLocaleString('zh-CN',{maximumFractionDigits:4}):s;}
 function render(data){
@@ -22,7 +22,7 @@ function render(data){
  }table.append(body);wrap.append(table);$('#holdings').append(wrap,mobile);
  $('#adviceSection').hidden=!data.advice;$('#advice').textContent=data.advice||'';$('#productsSection').hidden=!data.products?.length;$('#products').replaceChildren();
  for(const product of data.products||[]){const e=node('div',undefined,'product');e.append(node('h3',product.name),node('span',product.code+' / '+product.provider,'product-code'),node('p',product.summary),node('p',product.riskNote,'risk'));$('#products').append(e);}
- $('#state').hidden=true;$('#content').hidden=false;clearTimeout(expiryTimer);expiryTimer=setTimeout(()=>{if(Date.now()<data.expiresAt){render(data);return;}snapshot=null;$('#holdings').replaceChildren();$('#products').replaceChildren();$('#advice').textContent='';state('分享已到期','请联系分享者重新生成链接。');},Math.min(data.expiresAt-Date.now(),2147483647));
+ $('#state').hidden=true;$('#content').hidden=false;$('#stockSection').hidden=!data.stock;if(data.stock)window.HNWStockViewer.render(data.stock,$('#stockSection'));else window.HNWStockViewer?.clear();clearTimeout(expiryTimer);expiryTimer=setTimeout(()=>{if(Date.now()<data.expiresAt){render(data);return;}snapshot=null;$('#holdings').replaceChildren();$('#products').replaceChildren();$('#advice').textContent='';state('分享已到期','请联系分享者重新生成链接。');},Math.min(data.expiresAt-Date.now(),2147483647));
 }
 async function load(background=false){
  if(busy)return;if(!sid||!key){state('打开专属资料页','请使用收到的完整分享链接。此处不会列出客户或其他分享记录。');return;}
@@ -35,10 +35,11 @@ async function load(background=false){
   if(envelope.v!==1||!Number.isFinite(envelope.expiresAt))throw new Error('format');if(Date.now()>=envelope.expiresAt){snapshot=null;state('分享已到期','请联系分享者重新生成链接。');return;}
   const cryptoKey=await crypto.subtle.importKey('raw',decode(key),'AES-GCM',false,['decrypt']);
   const raw=await crypto.subtle.decrypt({name:'AES-GCM',iv:decode(envelope.iv),additionalData:new TextEncoder().encode('HNWShare/1/'+sid)},cryptoKey,decode(envelope.ciphertext));
-  const data=JSON.parse(new TextDecoder().decode(raw));if(data.expiresAt!==envelope.expiresAt)throw new Error('format');render(data);
+  const data=JSON.parse(new TextDecoder().decode(raw));if(data.expiresAt!==envelope.expiresAt)throw new Error('format');if(background&&snapshot&&JSON.stringify(data)===JSON.stringify(snapshot))return;render(data);
  }catch(error){if(!background||!snapshot){const cryptographic=error.name==='OperationError'||error.message==='format';state(cryptographic?'无法解密这份资料':'暂时无法读取资料',cryptographic?'链接可能不完整，或资料已损坏。请联系分享者重新生成。':'网络连接或云端同步尚未完成，请稍后重新读取。',true);}}
  finally{busy=false;}
 }
-$('#theme').addEventListener('change',e=>{document.documentElement.dataset.theme=e.target.value;});$('#retry').addEventListener('click',()=>{attempts=0;load();});
+$('#theme').addEventListener('change',e=>{document.documentElement.dataset.theme=e.target.value;window.HNWStockViewer?.theme();});$('#retry').addEventListener('click',()=>{attempts=0;load();});
+if(location.pathname==='/ui/share-preview/'){addEventListener('message',e=>{if(e.source!==parent||e.origin!==location.origin||e.data?.type!=='hnw-stock-preview')return;const d=e.data.payload;render({...d,schema:1,createdAt:Date.now(),expiresAt:Date.now()+d.days*86400000});});return;}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&snapshot)load(true);});setInterval(()=>{if(!document.hidden&&snapshot)load(true);},60000);load();
 })();
