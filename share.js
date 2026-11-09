@@ -22,7 +22,7 @@ function render(data){
  }table.append(body);wrap.append(table);$('#holdings').append(wrap,mobile);
  $('#adviceSection').hidden=!data.advice;$('#advice').textContent=data.advice||'';$('#productsSection').hidden=!data.products?.length;$('#products').replaceChildren();
  for(const product of data.products||[]){const e=node('div',undefined,'product');e.append(node('h3',product.name),node('span',product.code+' / '+product.provider,'product-code'),node('p',product.summary),node('p',product.riskNote,'risk'));$('#products').append(e);}
- $('#state').hidden=true;$('#content').hidden=false;clearTimeout(expiryTimer);expiryTimer=setTimeout(()=>{snapshot=null;$('#holdings').replaceChildren();$('#products').replaceChildren();$('#advice').textContent='';state('分享已到期','请联系分享者重新生成链接。');},Math.min(data.expiresAt-Date.now(),2147483647));
+ $('#state').hidden=true;$('#content').hidden=false;clearTimeout(expiryTimer);expiryTimer=setTimeout(()=>{if(Date.now()<data.expiresAt){render(data);return;}snapshot=null;$('#holdings').replaceChildren();$('#products').replaceChildren();$('#advice').textContent='';state('分享已到期','请联系分享者重新生成链接。');},Math.min(data.expiresAt-Date.now(),2147483647));
 }
 async function load(background=false){
  if(busy)return;if(!sid||!key){state('打开专属资料页','请使用收到的完整分享链接。此处不会列出客户或其他分享记录。');return;}
