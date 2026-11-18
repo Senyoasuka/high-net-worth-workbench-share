@@ -7,15 +7,15 @@
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>持仓资料 · 高净值工作台</title>
-<link rel="stylesheet" href="share.css?v=11">
+<link rel="stylesheet" href="share.css?v=111">
 <script src="echarts.min.js" defer></script>
-<script src="stock.js?v=11" defer></script>
-<script src="share.js?v=11" defer></script>
+<script src="stock.js?v=111" defer></script>
+<script src="share.js?v=111" defer></script>
 </head>
 <body>
 <a class="skip" href="#main">跳到资料正文</a>
 <header class="site-header">
-  <div class="brand"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 18h18M5 14l5-5 4 3 6-7m-4 0h4v4"/></svg><span>客户持仓报告</span></div>
+  <div class="brand"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 18h18M5 14l5-5 4 3 6-7m-4 0h4v4"/></svg><span>持仓报告</span></div>
   <label class="theme-label">皮肤 <select id="theme"><option value="blue">蓝白</option><option value="sage">松绿</option><option value="dark">暗色</option></select></label>
 </header>
 <main id="main" tabindex="-1">
@@ -25,13 +25,13 @@
   </section>
   <article id="content" hidden>
     <header class="document-head">
-      <div><p class="document-type">资料快照</p><h1 id="title"></h1><div class="document-meta"><time id="created"></time><time id="expires"></time></div></div>
-      <svg class="folio-mark" viewBox="0 0 120 88" fill="none" aria-hidden="true"><path d="M2 84h116M10 60l29-24 25 14 38-36m-17 1h17v17"/><path d="M18 72v10M39 62v20M64 66v16M89 48v34M107 37v45"/></svg>
+      <h1 id="title"></h1><div class="document-meta"><time id="created"></time><time id="expires"></time></div>
+
     </header>
     <nav id="reportTabs" class="report-tabs" role="tablist" aria-label="报告内容"></nav>
-    <section class="report-panel" id="adviceSection" hidden><div class="section-head"><h2>持仓建议</h2></div><p class="advice" id="advice"></p><button type="button" class="action" id="adviceHoldings" hidden>查看持仓明细</button></section>
+    <section class="report-panel" id="adviceSection" hidden><div class="section-head"><h2>持仓建议</h2></div><div class="advice" id="advice"></div><button type="button" class="action" id="adviceHoldings" hidden>查看持仓明细</button></section>
     <section class="report-panel" id="holdingsSection" hidden><div class="section-head"><h2>持仓明细</h2><span id="count"></span></div><div id="holdings"></div></section>
-    <section class="report-panel" id="productsSection" hidden><div class="section-head"><h2>推荐产品</h2></div><div id="products"></div></section>
+    <section class="report-panel" id="productsSection" hidden><div class="section-head"><h2>推荐产品</h2></div><div id="products"></div><div id="productReader" hidden></div></section>
     <section class="report-panel" id="stockSection" hidden>
       <button type="button" class="action back" id="stockBack">‹ 返回持仓明细</button>
       <h2 id="stockTitle" tabindex="-1"></h2><div id="stockBody"></div>

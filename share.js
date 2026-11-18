@@ -26,7 +26,7 @@ function svg(path){
 }
 function clearReport(){
  stockGeneration++;window.HNWStockViewer.clear();
- for(const selector of ['#title','#created','#expires','#stockTitle','#reportTabs','#advice','#holdings','#products','#stockBody'])$(selector).replaceChildren();
+ for(const selector of ['#title','#created','#expires','#stockTitle','#reportTabs','#advice','#holdings','#products','#productReader','#stockBody'])$(selector).replaceChildren();
  snapshot=null;stockFocus=null;manifest=null;rootStamp=null;stockCache.clear();previewStocks.clear();
 }
 function state(title,message,retry=false,loading=false){
@@ -83,7 +83,7 @@ function buildTabs(visible){
   button.setAttribute('role','tab');button.setAttribute('aria-controls',id+'Section');button.append(svg(path),node('span',label));
   const panel=$('#'+id+'Section');
   panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',button.id);panel.tabIndex=0;
-  button.onclick=()=>activate(id);
+  button.onclick=()=>{activate(id);if(window.scrollY>nav.offsetTop)nav.scrollIntoView({block:'start'});};
   nav.append(button);
  }
 }
@@ -143,68 +143,140 @@ function fillHoldings(data){
   line.append(td,node('td',row.period??'当前'));
   const card=node('section',undefined,'holding-card'),header=node('div',undefined,'holding-name'),name=node('div');
   name.append(node('h3',row.name),node('p',row.code+' · '+(row.period??'当前')));header.append(name);card.append(header);
-  const detail=node('details'),dl=node('dl');detail.append(node('summary','展开持仓字段'),dl);
+  const detail=node('details'),dl=node('dl');detail.append(node('summary','全部持仓明细'),dl);
+  const highlights=node('div',undefined,'holding-highlights');
+  const featured=['marketValue','profitAndLoss','presentPrice','holdingNumber'].filter(k=>data.fields.includes(k)&&row[k]!==undefined&&!['—','--',''].includes(String(row[k]))).slice(0,2);
   for(const field of data.fields){
    const value=field==='accountType'?String(row[field]??'—'):number(row[field]);
    const signal=field==='profitAndLoss'?Number(String(row[field]).replace(/,/g,'')):0;
    const color=signal>0?'positive':signal<0?'negative':'';
    line.append(node('td',value,(field==='accountType'?'':'numeric ')+color));
    const pair=node('div');pair.append(node('dt',labels[field]),node('dd',value,color));dl.append(pair);
+   if(featured.includes(field)){
+    const metric=node('div');metric.append(node('span',labels[field]),node('strong',value,color));highlights.append(metric);
+   }
   }
   if(hasStocks){
    const cell=node('td'),button=stockButton(row);
    if(button){cell.append(button);header.append(stockButton(row));}else cell.textContent='—';
    line.append(cell);
   }
-  if(data.fields.length)card.append(detail);
+  if(highlights.children.length)card.append(highlights);
+  if(data.fields.some(field=>!featured.includes(field)))card.append(detail);
   body.append(line);mobile.append(card);
  }
  wrap.append(table);host.append(wrap,mobile);
 }
 const assetNames=/^(?:huatai|cms|southern)(?:-(?:cover|1|2))?\.(?:webp|pdf|jpg)$/;
 function asset(name,product,original=false){
- if(!assetNames.test(name))return null;
+ if(typeof name!=='string'||!assetNames.test(name))return null;
  if(preview)return original?'/products/raw/'+product.id:'/products/assets/'+name;
  return 'product-media/'+name;
 }
+function originalActions(product){
+ const links=node('div',undefined,'material-files');
+ const url=asset(product.raw,product,true);
+ if(!url)return links;
+ const isPdf=product.raw.endsWith('.pdf');
+ const open=node('a','打开原文件','quiet-link');
+ open.href=url;open.target='_blank';open.rel='noopener noreferrer';
+ const save=node('a',isPdf?'保存 PDF':'保存原图','quiet-link');
+ save.href=preview?url+'?download=1':url;
+ save.download=product.raw;
+ links.append(open,save);
+ return links;
+}
+
+function openReader(product,trigger){
+ const listing=$('#products'),reader=$('#productReader');
+ listing.hidden=true;reader.hidden=false;reader.replaceChildren();
+ $('#productsSection .section-head').hidden=true;
+ const back=node('button','‹ 返回推荐产品','action back');back.type='button';
+ const title=node('h2',product.name);title.tabIndex=-1;
+ const label=node('p',product.raw?.endsWith('.pdf')?'产品材料 · PDF 原页':'产品材料 · 原始海报','stock-meta');
+ const figure=node('figure',undefined,'material-figure'),message=node('p','','stock-meta material-status');
+ message.setAttribute('role','status');
+ const pager=node('div',undefined,'material-pager'),pageNumber=node('span');
+ pageNumber.setAttribute('aria-live','polite');
+ const prev=node('button','上一页','action'),next=node('button','下一页','action');
+ prev.type=next.type='button';pager.append(prev,pageNumber,next);
+ const files=(product.pages||[]).map(file=>asset(file,product)).filter(Boolean);
+ const count=files.length;
+ let page=0,loadId=0;
+ function draw(){
+  const id=++loadId;
+  figure.replaceChildren();message.textContent='正在加载原始资料…';
+  pageNumber.textContent='第 '+(page+1)+' / '+count+' 页';
+  prev.disabled=page===0;next.disabled=page===count-1;
+  const image=node('img');
+  image.alt=product.name+'原始资料第 '+(page+1)+' 页';
+  image.onload=()=>{if(id===loadId)message.textContent='';};
+  image.onerror=()=>{
+   if(id!==loadId)return;
+   image.remove();
+   const retry=node('button','重新加载本页','action');retry.type='button';retry.onclick=draw;
+   figure.append(retry);
+   message.textContent='本页暂时无法加载，可重试或保存原文件。';
+  };
+  image.src=files[page];
+  figure.append(image);
+ }
+ function flip(delta){
+  const target=page+delta;
+  if(target<0||target>=count)return;
+  page=target;draw();
+  pager.scrollIntoView({block:'nearest'});
+ }
+ prev.onclick=()=>flip(-1);next.onclick=()=>flip(1);
+ back.onclick=()=>{
+  reader.hidden=true;reader.replaceChildren();
+  listing.hidden=false;$('#productsSection .section-head').hidden=false;trigger.focus();
+ };
+ reader.append(back,label,title,originalActions(product));
+ if(count){
+  if(count>1)reader.append(pager);
+  reader.append(message,figure);draw();
+ }else reader.append(node('p','此产品暂无网页预览，可打开原文件。','stock-meta'));
+ title.focus();
+}
+
 function products(items){
- const host=$('#products');host.replaceChildren();
+ const host=$('#products');host.replaceChildren();host.hidden=false;
+ const reader=$('#productReader');reader.hidden=true;reader.replaceChildren();
+ $('#productsSection .section-head').hidden=false;
  for(const product of items){
-  const card=node('details',undefined,'product'),summary=node('summary'),main=node('span');
+  const card=node('article',undefined,'product'),head=node('div',undefined,'product-heading');
   const cover=asset(product.cover||product.id+'-cover.webp',product);
-  if(cover){const img=node('img');img.src=cover;img.alt='';img.loading='lazy';summary.append(img);}else summary.append(node('span'));
-  main.append(node('small',product.provider+' · '+product.code),node('strong',product.name));
-  const arrow=node('span','›','product-chevron');arrow.setAttribute('aria-hidden','true');
-  summary.append(main,arrow);card.append(summary);
-  const detail=node('div',undefined,'product-detail');
-  if(product.fullName)detail.append(node('p',product.fullName,'stock-meta'));
-  detail.append(node('p',product.summary));
-  if(product.subscriptionCode)detail.append(node('p','材料所列认购代码 '+product.subscriptionCode,'stock-meta'));
+  if(cover){
+   const image=node('img');image.src=cover;image.alt='';image.loading='lazy';head.append(image);
+  }
+  const copy=node('div',undefined,'product-description');
+  copy.append(node('p',product.provider+' · '+product.code,'product-byline'),node('h3',product.name),node('p',product.summary,'product-summary'));
+  head.append(copy);
+  card.append(head);
+  if(product.pages?.length||asset(product.raw,product,true)){
+   const read=node('button',product.raw?.endsWith('.pdf')?'阅读产品 PDF':'查看原始海报','action material-open');
+   read.type='button';read.onclick=()=>openReader(product,read);card.append(read);
+  }
+  const details=node('details',undefined,'product-facts');
+  details.append(node('summary','产品要点与风险'));
+  const info=node('div',undefined,'product-detail');
+  if(product.fullName)info.append(node('p',product.fullName,'stock-meta'));
+  if(product.subscriptionCode)info.append(node('p','材料所列认购代码 '+product.subscriptionCode,'stock-meta'));
   if(product.points?.length){
-   const list=node('ul');for(const point of product.points)list.append(node('li',point));detail.append(list);
+   const list=node('ul');
+   for(const point of product.points)list.append(node('li',point));
+   info.append(list);
   }
-  if(product.risk)detail.append(node('p',product.risk,'stock-meta'));
-  detail.append(node('p',product.riskNote,'risk'));
-  if(product.sourceNote)detail.append(node('p',product.sourceNote,'stock-meta'));
-  const original=asset(product.raw,product,true);
-  if(original){
-   const link=node('a',product.raw.endsWith('.pdf')?'打开原版 PDF':'打开原始海报','action');
-   link.href=original;link.target='_blank';link.rel='noopener noreferrer';detail.append(link);
-  }
-  if(product.pages?.length){
-   const pages=node('details',undefined,'product-material');pages.append(node('summary','在本页查看原始资料'));
-   pages.addEventListener('toggle',()=>{
-    if(!pages.open||pages.children.length>1)return;
-    product.pages.forEach((file,i)=>{
-     const src=asset(file,product);if(!src)return;
-     const img=node('img');img.src=src;img.alt=product.name+'资料第 '+(i+1)+' 页';img.loading='lazy';pages.append(img);
-    });
-   });
-   detail.append(pages);
-  }
-  card.append(detail);host.append(card);
+  if(product.risk)info.append(node('p',product.risk,'stock-meta'));
+  if(product.riskNote)info.append(node('p',product.riskNote,'risk'));
+  if(product.sourceNote)info.append(node('p',product.sourceNote,'stock-meta'));
+  details.append(info);card.append(details);
+  host.append(card);
  }
 }
+
+
 const catalog=fetch(preview?'/api/products':'product-media/catalog.json').then(r=>{
  if(!r.ok)throw new Error('catalog');
  return r.json();
@@ -213,14 +285,14 @@ async function render(data){
  if(data.schema!==1||!Array.isArray(data.holdings)||!Array.isArray(data.fields)||data.holdings.length>500||data.fields.some(k=>!Object.hasOwn(labels,k)))throw new Error('format');
  if(!Number.isFinite(data.expiresAt)||Date.now()>=data.expiresAt){clearReport();state('分享已到期','请联系分享者重新生成链接。');return;}
  const productCatalog=await catalog;
- snapshot=data;$('#title').textContent=data.title||'持仓资料';$('#created').textContent='生成于 '+format(data.createdAt);$('#expires').textContent='有效至 '+format(data.expiresAt);
+ snapshot=data;$('#title').textContent=data.title==='持仓资料'?'账户持仓回顾':data.title||'账户持仓回顾';$('#created').textContent='生成于 '+format(data.createdAt);$('#expires').textContent='有效至 '+format(data.expiresAt);
  const theme=['blue','sage','dark'].includes(data.theme)?data.theme:'blue';document.documentElement.dataset.theme=theme;$('#theme').value=theme;
  previewStocks=new Map((preview?data.stocks||[]:[]).map(s=>[s.code,s]));
  fillHoldings(data);
  const items=(data.products||[]).map(p=>typeof p==='string'?productCatalog.get(p):{...productCatalog.get(p.id),...p}).filter(Boolean);
  products(items);
  const visible={advice:!!data.advice?.trim(),holdings:!!data.holdings.length,products:!!items.length};
- $('#advice').textContent=data.advice||'';$('#adviceHoldings').hidden=!visible.holdings;
+ $('#advice').replaceChildren(...(data.advice||'').split(/\n\s*\n/).filter(Boolean).map(text=>node('p',text)));$('#adviceHoldings').hidden=!visible.holdings;
  buildTabs(visible);
  $('#state').hidden=true;$('#content').hidden=false;
  if(data.stock)openStock();else activate(visible[openTab]?openTab:tabs.find(([id])=>visible[id])?.[0]);
