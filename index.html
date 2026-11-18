@@ -7,10 +7,11 @@
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>持仓资料 · 高净值工作台</title>
-<link rel="stylesheet" href="share.css?v=111">
+<link rel="stylesheet" href="share.css?v=120">
+<link rel="stylesheet" href="layouts.css?v=120">
 <script src="echarts.min.js" defer></script>
-<script src="stock.js?v=111" defer></script>
-<script src="share.js?v=111" defer></script>
+<script src="stock.js?v=120" defer></script>
+<script src="share.js?v=120" defer></script>
 </head>
 <body>
 <a class="skip" href="#main">跳到资料正文</a>
@@ -28,10 +29,16 @@
       <h1 id="title"></h1><div class="document-meta"><time id="created"></time><time id="expires"></time></div>
 
     </header>
+    <div id="layoutInsights" class="layout-insights" aria-label="报告内容统计" hidden></div>
+    <div class="report-body">
     <nav id="reportTabs" class="report-tabs" role="tablist" aria-label="报告内容"></nav>
+    <div id="reportChapters" class="report-chapters">
     <section class="report-panel" id="adviceSection" hidden><div class="section-head"><h2>持仓建议</h2></div><div class="advice" id="advice"></div><button type="button" class="action" id="adviceHoldings" hidden>查看持仓明细</button></section>
     <section class="report-panel" id="holdingsSection" hidden><div class="section-head"><h2>持仓明细</h2><span id="count"></span></div><div id="holdings"></div></section>
     <section class="report-panel" id="productsSection" hidden><div class="section-head"><h2>推荐产品</h2></div><div id="products"></div><div id="productReader" hidden></div></section>
+    <nav id="chapterProgress" class="chapter-progress" aria-label="阅读进度" hidden></nav>
+    </div>
+    </div>
     <section class="report-panel" id="stockSection" hidden>
       <button type="button" class="action back" id="stockBack">‹ 返回持仓明细</button>
       <h2 id="stockTitle" tabindex="-1"></h2><div id="stockBody"></div>

@@ -26,7 +26,7 @@ function svg(path){
 }
 function clearReport(){
  stockGeneration++;window.HNWStockViewer.clear();
- for(const selector of ['#title','#created','#expires','#stockTitle','#reportTabs','#advice','#holdings','#products','#productReader','#stockBody'])$(selector).replaceChildren();
+ for(const selector of ['#title','#created','#expires','#stockTitle','#reportTabs','#chapterProgress','#layoutInsights','#advice','#holdings','#products','#productReader','#stockBody'])$(selector).replaceChildren();
  snapshot=null;stockFocus=null;manifest=null;rootStamp=null;stockCache.clear();previewStocks.clear();
 }
 function state(title,message,retry=false,loading=false){
@@ -63,39 +63,106 @@ function number(value){
  const [whole,fraction]=normalized.split('.');
  return whole.replace(/\B(?=(\d{3})+(?!\d))/g,',')+(fraction===undefined?'':'.'+fraction);
 }
+const reportLayouts=new Set(['classic','overview','letter','ledger','guided','market']);
+let reportLayout='classic',sections=[];
+const continuous=()=>reportLayout==='overview'||reportLayout==='letter';
+const panelFor=id=>$('#'+id+'Section');
+
+function jumpToChapter(id){
+ activate(id);
+ const section=panelFor(id);
+ section.focus({preventScroll:true});
+ section.scrollIntoView({block:'start'});
+}
+
+function updateProgress(){
+ const nav=$('#chapterProgress');
+ nav.replaceChildren();
+ nav.hidden=reportLayout!=='guided'||sections.length<2;
+ if(nav.hidden)return;
+ const index=sections.findIndex(([id])=>id===openTab);
+ const when=(i,prefix)=>{
+  const entry=sections[i];
+  if(!entry)return node('span');
+  const button=node('button',prefix+entry[1],'action');
+  button.type='button';button.onclick=()=>jumpToChapter(entry[0]);return button;
+ };
+ nav.append(when(index-1,'‹ 上一章：'),node('span',(index+1)+' / '+sections.length,'chapter-number'),when(index+1,'下一章：'));
+}
+
 function activate(name,focus=false){
- stockGeneration++;window.HNWStockViewer.clear();$('#stockSection').hidden=true;$('#reportTabs').hidden=false;
+ stockGeneration++;
+ window.HNWStockViewer.clear();
+ $('#stockSection').hidden=true;$('.report-body').hidden=false;$('#reportTabs').hidden=!sections.length;
  openTab=name;
+ const flow=continuous();
  for(const [id] of tabs){
+  const visible=sections.some(([section])=>section===id);
   const selected=id===name;
-  $('#'+id+'Section').hidden=!selected;
+  panelFor(id).hidden=!visible||(!flow&&!selected);
   const tab=$('#tab-'+id);
   if(!tab)continue;
-  tab.setAttribute('aria-selected',String(selected));tab.tabIndex=selected?0:-1;
+  if(flow)tab.toggleAttribute('data-current',selected);
+  else {
+   tab.setAttribute('aria-selected',String(selected));
+   tab.tabIndex=selected?0:-1;
+  }
   if(selected&&focus)tab.focus();
  }
+ updateProgress();
 }
 function buildTabs(visible){
- const nav=$('#reportTabs');nav.replaceChildren();
- for(const [id,label,path] of tabs){
-  if(!visible[id])continue;
-  const button=node('button');button.type='button';button.id='tab-'+id;button.dataset.section=id;
-  button.setAttribute('role','tab');button.setAttribute('aria-controls',id+'Section');button.append(svg(path),node('span',label));
-  const panel=$('#'+id+'Section');
-  panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',button.id);panel.tabIndex=0;
-  button.onclick=()=>{activate(id);if(window.scrollY>nav.offsetTop)nav.scrollIntoView({block:'start'});};
+ const nav=$('#reportTabs');
+ nav.replaceChildren();
+ sections=tabs.filter(([id])=>visible[id]);
+ const flow=continuous(),guided=reportLayout==='guided';
+ if(flow)nav.removeAttribute('role');else nav.setAttribute('role','tablist');
+ nav.setAttribute('aria-label',flow?'报告目录':guided?'报告章节':'报告内容');
+ for(const [index,[id,label,path]] of sections.entries()){
+  const button=node('button');
+  button.type='button';button.id='tab-'+id;button.dataset.section=id;
+  button.setAttribute('aria-controls',id+'Section');
+  const panel=panelFor(id);
+  panel.tabIndex=0;
+  panel.setAttribute('role',flow?'region':'tabpanel');
+  panel.setAttribute('aria-labelledby',button.id);
+  if(!flow)button.setAttribute('role','tab');
+  button.append(guided?node('span',index+1,'chapter-step'):svg(path),node('span',label));
+  button.onclick=()=>{
+   if(flow||guided){jumpToChapter(id);return;}
+   activate(id);
+   if(window.scrollY>nav.offsetTop)nav.scrollIntoView({block:'start'});
+  };
   nav.append(button);
  }
 }
 $('#reportTabs').addEventListener('keydown',event=>{
+ if(continuous())return;
  const buttons=[...event.currentTarget.querySelectorAll('button')];
  const index=buttons.indexOf(event.target);
  if(index<0)return;
- const offset={ArrowLeft:-1,ArrowRight:1}[event.key];
- let to=offset?(index+offset+buttons.length)%buttons.length:({Home:0,End:buttons.length-1})[event.key];
+ const offset={ArrowLeft:-1,ArrowRight:1,...(reportLayout==='ledger'?{ArrowUp:-1,ArrowDown:1}:{})}[event.key];
+ const to=offset?(index+offset+buttons.length)%buttons.length:({Home:0,End:buttons.length-1})[event.key];
  if(to===undefined)return;
- event.preventDefault();activate(buttons[to].dataset.section,true);
+ event.preventDefault();
+ activate(buttons[to].dataset.section,true);
 });
+
+function layoutDetails(data,products){
+ const insights=$('#layoutInsights');insights.replaceChildren();
+ insights.hidden=reportLayout!=='overview'||Boolean(data.stock);
+ if(insights.hidden)return;
+ const stocks=previewStocks.size||Object.keys(manifest?.stocks||{}).length;
+ for(const [value,label] of [[data.holdings.length,'项持仓'],[stocks,'只含看盘'],[products.length,'份产品资料']]){
+  if(!value)continue;
+  const cell=node('div',undefined,'overview-count');
+  cell.append(node('strong',value),node('span',label));
+  insights.append(cell);
+ }
+ insights.hidden=!insights.children.length;
+}
+
+
 function stockButton(row){
  if(!previewStocks.has(row.code)&&!manifest?.stocks?.[row.code])return null;
  const button=node('button','看盘','action');button.type='button';
@@ -106,7 +173,7 @@ function stockButton(row){
 async function openStock(code,name){
  const generation=++stockGeneration;
  window.HNWStockViewer.clear();
- for(const [id] of tabs)$('#'+id+'Section').hidden=true;
+ $('.report-body').hidden=true;
  $('#reportTabs').hidden=true;$('#stockSection').hidden=false;$('#stockBack').hidden=!code;
  $('#stockTitle').textContent=code?name+'（'+code+'）':'个股看盘';
  const target=$('#stockBody');target.replaceChildren(node('p','正在打开个股快照…','stock-hint'));
@@ -285,6 +352,10 @@ async function render(data){
  if(data.schema!==1||!Array.isArray(data.holdings)||!Array.isArray(data.fields)||data.holdings.length>500||data.fields.some(k=>!Object.hasOwn(labels,k)))throw new Error('format');
  if(!Number.isFinite(data.expiresAt)||Date.now()>=data.expiresAt){clearReport();state('分享已到期','请联系分享者重新生成链接。');return;}
  const productCatalog=await catalog;
+ const nextLayout=reportLayouts.has(data.layout)?data.layout:'classic';
+ if(reportLayout!==nextLayout)openTab=null;
+ reportLayout=nextLayout;
+ document.documentElement.dataset.layout=reportLayout;
  snapshot=data;$('#title').textContent=data.title==='持仓资料'?'账户持仓回顾':data.title||'账户持仓回顾';$('#created').textContent='生成于 '+format(data.createdAt);$('#expires').textContent='有效至 '+format(data.expiresAt);
  const theme=['blue','sage','dark'].includes(data.theme)?data.theme:'blue';document.documentElement.dataset.theme=theme;$('#theme').value=theme;
  previewStocks=new Map((preview?data.stocks||[]:[]).map(s=>[s.code,s]));
@@ -294,8 +365,13 @@ async function render(data){
  const visible={advice:!!data.advice?.trim(),holdings:!!data.holdings.length,products:!!items.length};
  $('#advice').replaceChildren(...(data.advice||'').split(/\n\s*\n/).filter(Boolean).map(text=>node('p',text)));$('#adviceHoldings').hidden=!visible.holdings;
  buildTabs(visible);
+ layoutDetails(data,items);
  $('#state').hidden=true;$('#content').hidden=false;
- if(data.stock)openStock();else activate(visible[openTab]?openTab:tabs.find(([id])=>visible[id])?.[0]);
+ if(data.stock)openStock();
+ else {
+  const holdingsFirst=['ledger','market'].includes(reportLayout)&&visible.holdings;
+  activate(visible[openTab]?openTab:holdingsFirst?'holdings':sections[0]?.[0]);
+ }
  clearTimeout(expiryTimer);
  function expiry(){
   const remaining=data.expiresAt-Date.now();
@@ -304,7 +380,7 @@ async function render(data){
  }
  expiry();
 }
-$('#adviceHoldings').onclick=()=>activate('holdings',true);
+$('#adviceHoldings').onclick=()=>continuous()||reportLayout==='guided'?jumpToChapter('holdings'):activate('holdings',true);
 async function load(background=false){
  if(busy)return;
  if(!sid||!key){state('打开专属资料页','请使用收到的完整分享链接。');return;}
