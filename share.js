@@ -63,11 +63,30 @@ function number(value){
  const [whole,fraction]=normalized.split('.');
  return whole.replace(/\B(?=(\d{3})+(?!\d))/g,',')+(fraction===undefined?'':'.'+fraction);
 }
-const reportLayouts=new Set(['classic','overview','letter','ledger','guided','market']);
+const reportLayouts=new Set(['classic','overview','letter','ledger','guided','market','brief']);
 let reportLayout='classic',sections=[];
-const continuous=()=>reportLayout==='overview'||reportLayout==='letter';
+const continuous=()=>['overview','letter','brief'].includes(reportLayout);
 const panelFor=id=>$('#'+id+'Section');
 
+let briefScrollFrame=0;
+function trackBriefChapter(){
+ if(reportLayout!=='brief'||$('.report-body').hidden||$('#content').hidden||!sections.length)return;
+ const threshold=Math.min(210,window.innerHeight*.34);
+ let current=sections[0][0];
+ for(const [id] of sections){
+  if(panelFor(id).getBoundingClientRect().top<=threshold)current=id;
+ }
+ for(const [id] of sections){
+  const link=$('#tab-'+id);
+  link.toggleAttribute('data-current',id===current);
+  if(id===current)link.setAttribute('aria-current','location');
+  else link.removeAttribute('aria-current');
+ }
+}
+addEventListener('scroll',()=>{
+ if(reportLayout!=='brief'||briefScrollFrame)return;
+ briefScrollFrame=requestAnimationFrame(()=>{briefScrollFrame=0;trackBriefChapter();});
+},{passive:true});
 function jumpToChapter(id){
  activate(id);
  const section=panelFor(id);
@@ -102,7 +121,13 @@ function activate(name,focus=false){
   panelFor(id).hidden=!visible||(!flow&&!selected);
   const tab=$('#tab-'+id);
   if(!tab)continue;
-  if(flow)tab.toggleAttribute('data-current',selected);
+  if(flow){
+   tab.toggleAttribute('data-current',selected);
+   if(reportLayout==='brief'){
+    if(selected)tab.setAttribute('aria-current','location');
+    else tab.removeAttribute('aria-current');
+   }
+  }
   else {
    tab.setAttribute('aria-selected',String(selected));
    tab.tabIndex=selected?0:-1;
@@ -127,7 +152,7 @@ function buildTabs(visible){
   panel.setAttribute('role',flow?'region':'tabpanel');
   panel.setAttribute('aria-labelledby',button.id);
   if(!flow)button.setAttribute('role','tab');
-  button.append(guided?node('span',index+1,'chapter-step'):svg(path),node('span',label));
+  button.append(guided?node('span',index+1,'chapter-step'):svg(path),node('span',reportLayout==='brief'&&id==='advice'?'本期建议':label));
   button.onclick=()=>{
    if(flow||guided){jumpToChapter(id);return;}
    activate(id);
@@ -355,15 +380,32 @@ async function render(data){
  const nextLayout=reportLayouts.has(data.layout)?data.layout:'classic';
  if(reportLayout!==nextLayout)openTab=null;
  reportLayout=nextLayout;
+ document.querySelector(".brief-edition").textContent=data.holdings.length?'账户持仓快照':'客户报告快照';
  document.documentElement.dataset.layout=reportLayout;
- snapshot=data;$('#title').textContent=data.title==='持仓资料'?'账户持仓回顾':data.title||'账户持仓回顾';$('#created').textContent='生成于 '+format(data.createdAt);$('#expires').textContent='有效至 '+format(data.expiresAt);
+ snapshot=data;$('#title').textContent=!data.title||data.title==='持仓资料'?(reportLayout==='brief'?'持仓简报':'账户持仓回顾'):data.title;$('#created').textContent='生成于 '+format(data.createdAt);$('#expires').textContent='有效至 '+format(data.expiresAt);
  const theme=['blue','sage','dark'].includes(data.theme)?data.theme:'blue';document.documentElement.dataset.theme=theme;$('#theme').value=theme;
  previewStocks=new Map((preview?data.stocks||[]:[]).map(s=>[s.code,s]));
  fillHoldings(data);
  const items=(data.products||[]).map(p=>typeof p==='string'?productCatalog.get(p):{...productCatalog.get(p.id),...p}).filter(Boolean);
  products(items);
  const visible={advice:!!data.advice?.trim(),holdings:!!data.holdings.length,products:!!items.length};
- $('#advice').replaceChildren(...(data.advice||'').split(/\n\s*\n/).filter(Boolean).map(text=>node('p',text)));$('#adviceHoldings').hidden=!visible.holdings;
+ const adviceParts=(data.advice||'').split(/\n\s*\n/).filter(Boolean);
+ $('#advice').replaceChildren();
+ if(reportLayout==='brief'&&adviceParts.length){
+  const first=adviceParts[0];
+  const clause=first.match(/^([^。！？\n]{8,96}[。！？])(?:\s|$)?/);
+  if(clause&&clause[1].length<first.length){
+   $('#advice').append(node('p',clause[1],'brief-lead'));
+   const remainder=first.slice(clause[1].length).trimStart();
+   if(remainder)$('#advice').append(node('p',remainder));
+   adviceParts.shift();
+  }else if(first.length<=120){
+   $('#advice').append(node('p',adviceParts.shift(),'brief-lead'));
+  }
+ }
+ $('#advice').append(...adviceParts.map(text=>node('p',text)));
+ $('#adviceSection h2').textContent=reportLayout==='brief'?'本期建议':'持仓建议';
+ $('#adviceHoldings').hidden=!visible.holdings;
  buildTabs(visible);
  layoutDetails(data,items);
  $('#state').hidden=true;$('#content').hidden=false;
