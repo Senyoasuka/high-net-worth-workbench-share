@@ -265,17 +265,26 @@ function asset(name,product,original=false){
  if(preview)return original?'/products/raw/'+product.id:'/products/assets/'+name;
  return 'product-media/'+name;
 }
+const originalMedia={
+ huatai:{raw:'huatai.pdf',pages:['huatai-1.webp','huatai-2.webp']},
+ cms:{raw:'cms.pdf',pages:['cms-1.webp','cms-2.webp']},
+ southern:{raw:'southern.jpg',pages:['southern.jpg']}
+};
 function originalActions(product){
  const links=node('div',undefined,'material-files');
  const url=asset(product.raw,product,true);
  if(!url)return links;
  const isPdf=product.raw.endsWith('.pdf');
- const open=node('a','打开原文件','quiet-link');
+ const open=node('a','在浏览器打开原件','quiet-link');
  open.href=url;open.target='_blank';open.rel='noopener noreferrer';
- const save=node('a',isPdf?'保存 PDF':'保存原图','quiet-link');
- save.href=preview?url+'?download=1':url;
- save.download=product.raw;
- links.append(open,save);
+ const save=node('a',isPdf?'下载原版 PDF':'保存原图','quiet-link');
+ save.href=preview?url+'?download=1':url;save.download=product.raw;
+ links.append(save,open);
+ if(isPdf&&Object.hasOwn(originalMedia,product.id)){
+  const archive=node('a','下载 ZIP 备用包','quiet-link');
+  archive.href=preview?'/products/download/'+product.id:'product-media/'+product.id+'.zip';
+  archive.download=product.id+'.zip';links.append(archive);
+ }
  return links;
 }
 
@@ -292,7 +301,7 @@ function openReader(product,trigger){
  pageNumber.setAttribute('aria-live','polite');
  const prev=node('button','上一页','action'),next=node('button','下一页','action');
  prev.type=next.type='button';pager.append(prev,pageNumber,next);
- const files=(product.pages||[]).map(file=>asset(file,product)).filter(Boolean);
+ const files=(product.pages||[]).map(file=>asset(file.replace(/-(1|2)\.webp$/,'-$1.jpg'),product)).filter(Boolean);
  const count=files.length;
  let page=0,loadId=0;
  function draw(){
@@ -325,6 +334,7 @@ function openReader(product,trigger){
   listing.hidden=false;$('#productsSection .section-head').hidden=false;trigger.focus();
  };
  reader.append(back,label,title,originalActions(product));
+ if(product.raw?.endsWith('.pdf'))reader.append(node('p','微信里如未弹出保存，请点右上角在系统浏览器打开。本页原稿也可直接翻页。','stock-meta'));
  if(count){
   if(count>1)reader.append(pager);
   reader.append(message,figure);draw();
@@ -386,7 +396,7 @@ async function render(data){
  const theme=['blue','sage','dark'].includes(data.theme)?data.theme:'blue';document.documentElement.dataset.theme=theme;$('#theme').value=theme;
  previewStocks=new Map((preview?data.stocks||[]:[]).map(s=>[s.code,s]));
  fillHoldings(data);
- const items=(data.products||[]).map(p=>typeof p==='string'?productCatalog.get(p):{...productCatalog.get(p.id),...p}).filter(Boolean);
+ const items=(data.products||[]).map(p=>typeof p==='string'?productCatalog.get(p):{...(Object.hasOwn(originalMedia,p.id)?originalMedia[p.id]:{}),...productCatalog.get(p.id),...p}).filter(Boolean);
  products(items);
  const visible={advice:!!data.advice?.trim(),holdings:!!data.holdings.length,products:!!items.length};
  const adviceParts=(data.advice||'').split(/\n\s*\n/).filter(Boolean);

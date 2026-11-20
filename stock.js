@@ -5,6 +5,54 @@ const n=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined
 let chart=null,host=null,current=null,period=null,zoom=null;
 const ma=(a,w)=>a.map((_,i)=>i<w-1?null:a.slice(i-w+1,i+1).reduce((x,y)=>x+y,0)/w);
 function clear(){chart?.dispose();chart=null;host?.replaceChildren();host=null;current=null;zoom=null;}
+const lineNames={support:'支撑线',pressure:'压力线',trend:'趋势线'};
+function marksFor(stock,p,rows,dark){
+ const dates=new Map(rows.map(row=>[String(row.date),row.date]));
+ const index=new Map(rows.map((row,i)=>[row.date,i]));
+ const byDay=new Map();
+ for(const row of rows){const day=String(row.date).slice(0,10);if(!byDay.has(day))byDay.set(day,row.date);}
+ const anchor=value=>dates.get(String(value))||(p==='daily'?byDay.get(String(value).slice(0,10)):undefined);
+ const lines=[],points=[],values=[],indices=[];
+ const colors={support:dark?'#82ddb3':'#087751',pressure:dark?'#ffa0b4':'#ba3058',trend:dark?'#f7d796':'#976017'};
+ const pick=item=>!item.period||item.period===p;
+ for(const item of (stock.annotations||[]).filter(pick)){
+  const name=lineNames[item.type],color=colors[item.type];
+  const style={color,width:1.75,type:item.type==='trend'?'solid':'dashed'};
+  if(item.type==='trend'){
+   const a=anchor(item.point1?.date),b=anchor(item.point2?.date);
+   if(a===undefined||b===undefined)continue;
+   values.push(item.point1.value,item.point2.value);indices.push(index.get(a),index.get(b));
+   lines.push([{name,coord:[a,item.point1.value],lineStyle:style},{coord:[b,item.point2.value]}]);
+  }else if(name&&Number.isFinite(item.value)){
+   values.push(item.value);
+   lines.push({name:name+' '+item.value,yAxis:item.value,lineStyle:style});
+  }
+ }
+ for(const item of (stock.textboxes||[]).filter(pick)){
+  const date=anchor(item.date);
+  if(date===undefined)continue;
+  indices.push(index.get(date));values.push(item.value);
+  points.push({coord:[date,item.value],text:item.text,value:item.text});
+ }
+ return {lines,points,values,indices};
+}
+function noteSummary(stock){
+ const notes=[...(stock.annotations||[]),...(stock.textboxes||[])];
+ if(!notes.length)return null;
+ const section=n('details',undefined,'stock-annotated');
+ const list=n('ul',undefined,'stock-note-list');
+ for(const note of notes){
+  const unit=periods[note.period]||'原始周期';
+  const desc=note.type==='trend'
+   ?note.point1.date+' '+note.point1.value+' → '+note.point2.date+' '+note.point2.value
+   :note.type?String(note.value):(note.date+' '+note.text).trim();
+  list.append(n('li',unit+' · '+(lineNames[note.type]||'文字标注')+' '+desc));
+ }
+ section.append(n('summary','划线与文字标注（'+notes.length+'）'),list);
+ return section;
+}
+
+
 function draw(){
  if(!host||!current)return;const container=host.querySelector('.stock-chart');if(!container)return;
  const rows=current.charts[period],dark=document.documentElement.dataset.theme==='dark';chart?.dispose();chart=null;
@@ -12,8 +60,19 @@ function draw(){
  if(!container.dataset.wheelBound){container.addEventListener('wheel',e=>{if(!e.ctrlKey)e.stopImmediatePropagation();},{capture:true,passive:true});container.dataset.wheelBound='true';}
  if(window.echarts){
  chart=echarts.init(container,dark?'dark':null,{renderer:'canvas'});const intra=period==='1min',closes=rows.map(r=>r.close),dates=rows.map(r=>r.date),red=dark?'#ff9b9b':'#bf293e',green=dark?'#7dd8b0':'#168152';
- const start=zoom?.start??(intra?0:Math.max(0,100-100*95/rows.length));
- chart.setOption({animation:false,backgroundColor:'transparent',textStyle:{fontFamily:'system-ui'},tooltip:{trigger:'axis',renderMode:'richText',axisPointer:{type:'cross'}},legend:{top:4,data:intra?['价格','均价']:['K线','MA5','MA20','MA60'],textStyle:{fontSize:11}},grid:[{left:52,right:16,top:44,height:'57%'},{left:52,right:16,top:'74%',height:'12%'}],xAxis:[{type:'category',data:dates,boundaryGap:!intra,axisLabel:{fontSize:10,hideOverlap:true,formatter:value=>intra?String(value).slice(-5):String(value).slice(0,10)}},{type:'category',gridIndex:1,data:dates,axisLabel:{show:false}}],yAxis:[{scale:true},{gridIndex:1,scale:true,axisLabel:{show:false},splitLine:{show:false}}],dataZoom:[{type:'inside',xAxisIndex:[0,1],zoomOnMouseWheel:'ctrl',moveOnMouseWheel:false,preventDefaultMouseMove:false,start,end:zoom?.end??100},{type:'slider',xAxisIndex:[0,1],height:22,bottom:7,start,end:zoom?.end??100}],series:[...(intra?[{name:'价格',type:'line',data:closes,showSymbol:false,lineStyle:{color:dark?'#9bbdff':'#245ac2'}},{name:'均价',type:'line',data:ma(closes,20),showSymbol:false}]:[{name:'K线',type:'candlestick',data:rows.map(r=>[r.open,r.close,r.low,r.high]),itemStyle:{color:red,color0:green,borderColor:red,borderColor0:green}},...[5,20,60].map(w=>({name:'MA'+w,type:'line',data:ma(closes,w),showSymbol:false,lineStyle:{width:1}}))]),{name:'成交量',type:'bar',xAxisIndex:1,yAxisIndex:1,data:rows.map(r=>r.volume??0),itemStyle:{color:'#8199b3'}}]});
+ const marks=marksFor(current,period,rows,dark);
+ const defaultStart=marks.indices.reduce((v,i)=>Math.min(v,Math.max(0,100*(i-3)/rows.length)),intra?0:Math.max(0,100-100*95/rows.length));
+ const start=zoom?.start??defaultStart;
+ const yExtent=marks.values.length?{
+  min:({min,max})=>Math.min(min,...marks.values)-Math.max(.001,(max-min)*.012),
+  max:({min,max})=>Math.max(max,...marks.values)+Math.max(.001,(max-min)*.012)
+ }:{};
+ const annotations={
+  markLine:{silent:true,symbol:'none',label:{formatter:value=>value.name||'',position:'insideEndTop',fontSize:10},data:marks.lines},
+  markPoint:{symbol:'circle',symbolSize:8,itemStyle:{color:dark?'#ffd38b':'#936124'},label:{show:true,position:'top',color:dark?'#fff2cf':'#473415',backgroundColor:dark?'#4f4231':'#fff3cf',padding:[4,6],width:145,overflow:'truncate',formatter:value=>String(value.data.text||'').split('\n')[0]},data:marks.points}
+ };
+
+ chart.setOption({animation:false,backgroundColor:'transparent',textStyle:{fontFamily:'system-ui'},tooltip:{trigger:'axis',renderMode:'richText',axisPointer:{type:'cross'}},legend:{top:4,data:intra?['价格','均价']:['K线','MA5','MA20','MA60'],textStyle:{fontSize:11}},grid:[{left:52,right:16,top:44,height:'57%'},{left:52,right:16,top:'74%',height:'12%'}],xAxis:[{type:'category',data:dates,boundaryGap:!intra,axisLabel:{fontSize:10,hideOverlap:true,formatter:value=>intra?String(value).slice(-5):String(value).slice(0,10)}},{type:'category',gridIndex:1,data:dates,axisLabel:{show:false}}],yAxis:[{scale:true,...yExtent},{gridIndex:1,scale:true,axisLabel:{show:false},splitLine:{show:false}}],dataZoom:[{type:'inside',xAxisIndex:[0,1],zoomOnMouseWheel:'ctrl',moveOnMouseWheel:false,preventDefaultMouseMove:false,start,end:zoom?.end??100},{type:'slider',xAxisIndex:[0,1],height:22,bottom:7,start,end:zoom?.end??100}],series:[...(intra?[{name:'价格',type:'line',data:closes,...annotations,showSymbol:false,lineStyle:{color:dark?'#9bbdff':'#245ac2'}},{name:'均价',type:'line',data:ma(closes,20),showSymbol:false}]:[{name:'K线',type:'candlestick',...annotations,data:rows.map(r=>[r.open,r.close,r.low,r.high]),itemStyle:{color:red,color0:green,borderColor:red,borderColor0:green}},...[5,20,60].map(w=>({name:'MA'+w,type:'line',data:ma(closes,w),showSymbol:false,lineStyle:{width:1}}))]),{name:'成交量',type:'bar',xAxisIndex:1,yAxisIndex:1,data:rows.map(r=>r.volume??0),itemStyle:{color:'#8199b3'}}]});
  chart.on('dataZoom',()=>{const z=chart.getOption().dataZoom[0];zoom={start:z.start,end:z.end};});
  }
  const detail=host.querySelector('.stock-data'),tbody=detail.querySelector('tbody');
@@ -47,8 +106,11 @@ function render(stock,target){clear();host=target;current=stock;target.replaceCh
  if(Object.keys(stock.charts||{}).length){const top=n('div',undefined,'stock-toolbar');for(const p of Object.keys(periods)){if(!stock.charts[p]?.length)continue;const b=n('button',periods[p]);b.dataset.stockPeriod=p;b.onclick=()=>{period=p;zoom=null;top.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));draw();};top.append(b);}target.append(top,n('p','', 'stock-period-note'));const c=n('div',undefined,'stock-chart');c.setAttribute('role','img');c.setAttribute('aria-label','股票K线与成交量，可使用下方滑块调整区间；完整数值见行情明细');target.append(c,n('p','电脑普通滚轮滚动页面，Ctrl＋滚轮缩放；手机可使用下方滑块或双指缩放，左右拖动看历史。','stock-hint'));
  const detail=n('details',undefined,'stock-data'),summary=n('summary','行情数值明细'),wrap=n('div',undefined,'stock-table-wrap'),table=n('table'),head=n('thead'),tr=n('tr');for(const t of ['日期','开盘','最高','最低','收盘','成交量']){const th=n('th',t);th.scope='col';tr.append(th);}head.append(tr);table.append(head,n('tbody'));wrap.tabIndex=0;wrap.setAttribute('aria-label','行情明细，可左右滚动');wrap.append(table);detail.append(summary,wrap);target.append(detail);
  period=stock.charts[stock.period]?.length?stock.period:Object.keys(stock.charts)[0];top.querySelector('[data-stock-period="'+period+'"]').setAttribute('aria-pressed','true');}
+ const annotationSummary=noteSummary(stock);
+ if(annotationSummary)target.append(annotationSummary);
  if(stock.source)target.append(n('p',stock.source,'stock-hint'));for(const w of stock.warnings||[])target.append(n('p',w,'stock-warning'));
  if(stock.chartImage){const d=n('details',undefined,'stock-annotated');d.open=true;d.append(n('summary','分享时的划线与文字标注原样图'));const image=n('img');image.src=stock.chartImage;image.alt='分享时当前周期图表，包括支撑压力趋势线和文字标注；此图保留分享时范围';d.append(image,n('p','原样图保留分享时的周期和缩放位置。上方交互K线用于查看其他区间，标注以此图为准。','stock-hint'));target.append(d);}
+ const comments=n('section',undefined,'stock-comments');comments.append(n('h2','跟踪评论与回复（'+(stock.comments||[]).length+'条）'));for(const c of stock.comments||[]){const item=n('div',undefined,'stock-comment');item.append(n('p',[c.created_at,c.rating?'★'.repeat(c.rating):'',...(c.tags||[])].filter(Boolean).join(' / '),'stock-meta'),n('p',c.text,'stock-copy'));for(const src of c.images||[]){const img=n('img');img.src=src;img.alt='分享者选入的评论附图';img.loading='lazy';item.append(img);}for(const r of c.replies||[]){const reply=n('div',undefined,'stock-reply');reply.append(n('p',r.created_at+' '+({correct:'验证正确',partial:'部分正确',wrong:'已失效'}[r.verdict]||''),'stock-meta'),n('p',r.text,'stock-copy'));item.append(reply);}comments.append(item);}if(!stock.comments?.length)comments.append(n('p','本快照未包含评论。','stock-hint'));target.append(comments);
  const research=(stock.reports||[]).filter(report=>report!==quote);
  if(research.length){
   const shelf=n('section',undefined,'research');shelf.append(n('h2','个股研究资料'));
@@ -71,7 +133,12 @@ function render(stock,target){clear();host=target;current=stock;target.replaceCh
   }
   target.append(shelf);
  }
- const comments=n('section',undefined,'stock-comments');comments.append(n('h2','跟踪评论与回复（'+(stock.comments||[]).length+'条）'));for(const c of stock.comments||[]){const item=n('div',undefined,'stock-comment');item.append(n('p',[c.created_at,c.rating?'★'.repeat(c.rating):'',...(c.tags||[])].filter(Boolean).join(' / '),'stock-meta'),n('p',c.text,'stock-copy'));for(const src of c.images||[]){const img=n('img');img.src=src;img.alt='分享者选入的评论附图';img.loading='lazy';item.append(img);}for(const r of c.replies||[]){const reply=n('div',undefined,'stock-reply');reply.append(n('p',r.created_at+' '+({correct:'验证正确',partial:'部分正确',wrong:'已失效'}[r.verdict]||''),'stock-meta'),n('p',r.text,'stock-copy'));item.append(reply);}comments.append(item);}if(!stock.comments?.length)comments.append(n('p','本快照未包含评论。','stock-hint'));target.append(comments);
+
+ if(stock.comments?.length){
+  const button=n('button','查看评论与回复（'+stock.comments.length+'）','action stock-comment-jump');
+  button.type='button';comments.tabIndex=-1;button.onclick=()=>{comments.focus({preventScroll:true});comments.scrollIntoView({block:'start'});};
+  meta.after(button);
+ }
  requestAnimationFrame(draw);
 }
 addEventListener('resize',()=>chart?.resize(),{passive:true});window.HNWStockViewer={render,clear,theme:draw};
