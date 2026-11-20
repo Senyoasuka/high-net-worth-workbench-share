@@ -301,10 +301,14 @@ function openReader(product,trigger){
  pageNumber.setAttribute('aria-live','polite');
  const prev=node('button','上一页','action'),next=node('button','下一页','action');
  prev.type=next.type='button';pager.append(prev,pageNumber,next);
- const files=(product.pages||[]).map(file=>asset(file.replace(/-(1|2)\.webp$/,'-$1.jpg'),product)).filter(Boolean);
+ const files=(product.pages||[]).map(file=>{
+  const standard=asset(file,product);
+  const jpeg=asset(file.replace(/-(1|2)\.webp$/,'-$1.jpg'),product);
+  return {primary:jpeg||standard,backup:jpeg!==standard?standard:null};
+ }).filter(file=>file.primary);
  const count=files.length;
  let page=0,loadId=0;
- function draw(){
+ function draw(retryRequest=false){
   const id=++loadId;
   figure.replaceChildren();message.textContent='正在加载原始资料…';
   pageNumber.textContent='第 '+(page+1)+' / '+count+' 页';
@@ -312,14 +316,18 @@ function openReader(product,trigger){
   const image=node('img');
   image.alt=product.name+'原始资料第 '+(page+1)+' 页';
   image.onload=()=>{if(id===loadId)message.textContent='';};
+  const entry=files[page];
+  const url=source=>source+(retryRequest?'?retry='+Date.now():'');
+  let usedBackup=false;
   image.onerror=()=>{
    if(id!==loadId)return;
+   if(entry.backup&&!usedBackup){usedBackup=true;image.src=url(entry.backup);return;}
    image.remove();
-   const retry=node('button','重新加载本页','action');retry.type='button';retry.onclick=draw;
+   const retry=node('button','重新加载本页','action');retry.type='button';retry.onclick=()=>draw(true);
    figure.append(retry);
-   message.textContent='本页暂时无法加载，可重试或保存原文件。';
+   message.textContent='本页暂时无法加载，可重试或下载原文件。';
   };
-  image.src=files[page];
+  image.src=url(entry.primary);
   figure.append(image);
  }
  function flip(delta){
